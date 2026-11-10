@@ -51,6 +51,22 @@ func (s *TestSuite) SetupSuite() {
 }
 
 // Positive: Проверяем поиск объявления по части заголовка
+func (s *TestSuite) TestSearchByTitle() {
+	list := advList.GetAdvertisementsList(s.T(), s.loginData.Token, searchMiddle)
+
+	s.Run("В ответе есть хотя бы одно объявление", func() {
+		require.NotEmpty(s.T(), list.Items)
+	})
+	s.Run("Среди найденных есть ваше объявление", func() {
+		titles := make([]string, 0, len(list.Items))
+		for _, item := range list.Items {
+			titles = append(titles, item.Title)
+		}
+		require.Contains(s.T(), titles, existingAdTitle)
+	})
+}
+
+// Positive: Проверяем поиск объявления по части заголовка
 func (s *TestSuite) TestSearchByTitle_Substring() {
 	cases := []struct {
 		name   string
