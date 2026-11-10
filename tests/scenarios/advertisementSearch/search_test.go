@@ -46,6 +46,7 @@ func (s *TestSuite) SetupSuite() {
 	require.NotEmpty(s.T(), searchMiddle, "задайте searchMiddle")
 	require.NotEmpty(s.T(), searchEnd, "задайте searchEnd")
 
+	base.Precondition("Авторизация пользователя с кредами из переменных окружения и получение его параметров")
 	s.loginData = auth.Login(s.T(), os.Getenv("TEST_LOGIN"), os.Getenv("TEST_PASSWORD"))
 }
 
