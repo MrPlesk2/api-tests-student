@@ -66,7 +66,7 @@ func (s *TestSuite) TestSearchByTitle() {
 	})
 }
 
-// Positive: Проверяем поиск объявления по части заголовка
+// Positive: Проверяем поиск объявления по части заголовка параметризованный
 func (s *TestSuite) TestSearchByTitle_Substring() {
 	cases := []struct {
 		name   string
