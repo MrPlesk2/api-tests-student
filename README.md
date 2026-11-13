@@ -1,55 +1,184 @@
-# API-тесты для проекта https://testboard.avito.com/
+# API-тесты TestBoard
 
-## Полезные ссылки
+Проект проверяет API [TestBoard](https://testboard.avito.com/) по архитектуре
+Client Layer → Manager Layer → Scenario.
 
-1. [Swagger-спецификация](https://testboard.avito.com/swagger/index.html)
-2. [Техническое задание](https://docs.google.com/document/d/1IZ9SxEcePoQT6lyEmukycp1qNok4HZtok73UQnPwKSA/edit?usp=sharing)
-3. [Библиотека для написания API-тестов](https://github.com/steinfletcher/apitest)
-4. [Мощная библиотека анализа JSON для Go](https://github.com/tidwall/gjson)
+## Подготовка
 
-## Запуск тестов
+1. Установите [Git](https://git-scm.com/install/) и [Go](https://go.dev/doc/install)
+   версии **1.25.1 или новее**.
+2. Создайте публичный fork и склонируйте его через HTTPS:
 
-1. Установите любое IDE для разработки: [Jetbrains GoLand](https://www.jetbrains.com/ru-ru/go/) (Платное или по студенческой лицензии), [VS Code](https://code.visualstudio.com/) (бесплатное).
-2. Установите [Git](https://git-scm.com/install/) на компьютер
-3. [Установите](https://go.dev/doc/install) Go версии 1.25.1
-4. [Настройте](https://docs.github.com/ru/authentication/connecting-to-github-with-ssh) доступ к своему Github-аккаунту
-   по SSH-ключу.
-5. Склонируйте себе репозиторий: `git clone <путь к вашему репозиторию>`
-6. Подтяните необходимые зависимости через команду в корне проекта:
+   ```bash
+   git clone https://github.com/<ваш-логин>/api-tests-student.git
+   cd api-tests-student
+   git switch main
+   go mod download
+   ```
 
-```bash
-   go mod tidy
-```
+3. Зарегистрируйте аккаунт на TestBoard. В корне создайте файл `.env.override`:
 
-7. В файле `.env.override` (создайте его в корне, если нет) выставьте правильные значения для переменных окружения:
+   ```dotenv
+   TEST_LOGIN=your_email
+   TEST_PASSWORD=your_password
+   ```
 
-```
-TEST_LOGIN=your_login
-TEST_PASSWORD=your_password
-```
+   Файл исключён из Git. Значения `API_URL=https://testboard.avito.com/api/v1` и
+   `DEBUG=false` уже заданы в `.env`; при необходимости их можно переопределить
+   в `.env.override`. Для тестов нужен доступ к API и хранилищу фотографий
+   `storage.yandexcloud.net`. Заранее создавать объявления не требуется. Между запросами в каждом тестовом
+   процессе выдерживается интервал 500 мс, чтобы не превышать лимиты стенда;
+   таймаут запроса — 30 секунд.
 
-8. Для запуска всех тестов достаточно выполнить команду в корне проекта:
+## Запуск
 
-```bash
-  go test -v ./...
-```
-
-9. Отдельный пакет с тестами можно запустить командой:
+Все сценарии с реальными запросами к TestBoard, без использования кеша результатов:
 
 ```bash
-  go test -v ./tests/scenarios/myAdvertisement/
+go test -v -count=1 ./...
 ```
+
+Три последовательных выполнения каждого сценария для проверки повторяемости:
+
+```bash
+go test -v -count=3 ./...
+```
+
+Отдельные функциональности:
+
+```bash
+go test -v -count=1 ./tests/scenarios/advertisementCreate
+go test -v -count=1 ./tests/scenarios/advertisementSearch
+go test -v -count=1 ./tests/scenarios/myAdvertisement
+go test -v -count=1 ./tests/scenarios/favorites
+```
+
+Только проверки создания без авторизации (логин и пароль не нужны):
+
+```bash
+go test -v -count=1 ./tests/scenarios/advertisementCreate -run TestCreateAdvertisementWithoutAuthorization
+```
+
+Сценарии создают объявления с уникальными названиями и удаляют только свои данные
+через `t.Cleanup`, в том числе при падении последующих проверок. Негативные
+кейсы используют отдельный корректный запрос с одним изменённым параметром.
+PNG-фотография создаётся в памяти; локальные файлы и сторонние картинки не нужны.
+
+## Покрытие
+
+- `advertisementCreate/create_test.go`: создание со всеми полями и тремя фото;
+  проверка полей через GET, поиск по полному названию, получение списка фото,
+  скачивание каждого файла и сравнение с отправленными байтами.
+- `advertisementCreate/validation_test.go`: отсутствие и пустые title/description,
+  превышение длины, отрицательная/слишком большая/нечисловая цена, в том числе дробные
+  значения за границами диапазона, цена с запятой и разделителем тысяч; некорректное
+  и дробное количество, экспоненциальная запись и переполнение целого; отсутствие фото,
+  превышение лимита, текстовый и SVG-файл, пустой и повреждённый PNG. Проверяются HTTP 400,
+  точный тип ошибки и её сообщение.
+- `advertisementCreate/boundaries_test.go`: допустимые максимумы title и description,
+  цена 0 и 1 000 000, количество 1 и 100; проверка сохранённых полей через GET.
+- `advertisementCreate/required_fields_test.go`: создание без price и quantity,
+  проверка обязательных полей и нулевых значений по умолчанию через GET.
+- `advertisementCreate/authorization_test.go`: отсутствующий и неверный токен;
+  проверяются HTTP 401 и точные сообщения.
+- `advertisementSearch/search_test.go`: полное название, начало/середина/конец,
+  нижний/верхний/смешанный регистр на собственных данных.
+- `myAdvertisement/myAdvertisements_test.go`: объявление в профиле владельца
+  с учётом пагинации и отказ при неверном токене.
+
+В действующем API [Swagger](https://testboard.avito.com/swagger/index.html)
+получение и удаление объявления выполняются через
+`GET /advertisement?id={id}` и `DELETE /advertisement?id={id}`.
+Путь из условия `GET /advertisement/{id}` возвращает 404.
+
+Ограничения создания: title — 1–50 символов, description — 1–500,
+price — 0–1 000 000, quantity — 1–100, photos — 1–3.
+Цена и количество необязательны; проверки их отсутствия как ошибки нет.
+
+## Избранное
+
+Запуск второй части отдельно:
+
+```bash
+go test -v -count=1 ./tests/scenarios/favorites
+go test -v -count=3 -shuffle=on ./tests/scenarios/favorites
+```
+
+Достаточно существующих `TEST_LOGIN` и `TEST_PASSWORD`. Настроенный пользователь
+создаёт объявления; для каждого сценария автоматически регистрируется отдельный
+пользователь избранного. Логин и пароль вспомогательного аккаунта вычисляются
+из ID основного пользователя, имени сценария и его настроенного пароля.
+При повторном запуске используется тот же аккаунт. Новые объявления и избранное
+очищаются через `t.Cleanup`; личное избранное основного пользователя не изменяется.
+Вспомогательные аккаунты остаются для повторного использования: API удаления
+пользователя доступен только администратору.
+
+Сценарии в `tests/scenarios/favorites`:
+
+- `lifecycle_test.go`: добавление → GET → удаление из избранного → GET →
+  повторное добавление → удаление самого объявления владельцем → пустой GET.
+- `nonexistent_test.go`: POST и DELETE с ID предварительно удалённого объявления;
+  проверяются HTTP 404 и разные точные сообщения для объявления и записи избранного.
+- `authorization_test.go`: отсутствующий и неверный токен для GET, POST, DELETE
+  и POST /favorites/bulk; проверяются HTTP 401 и точные сообщения.
+- `validation_test.go`: отсутствующий, пустой, некорректный и числовой ID;
+  проверяются HTTP 400 и точные сообщения валидации.
+- `duplicate_test.go`: повторное добавление возвращает HTTP 409 и сохраняет
+  исходную запись.
+- `own_advertisement_test.go`: своё объявление отклоняется с HTTP 403.
+- `not_saved_test.go`: удаление существующего, но не добавленного в избранное объявления;
+  HTTP 404 и точная ошибка, сохранность самого объявления и другого избранного.
+- `repeated_removal_test.go`: повторное удаление возвращает HTTP 404 и точную ошибку,
+  другое избранное и само объявление сохраняются.
+- `isolation_test.go`: два пользователя независимо сохраняют одно чужое объявление;
+  чужое избранное не видно и не удаляется, записи пользователей независимы.
+- `limit_test.go`: создаётся 51 чужое объявление, первые 50 добавляются через
+  bulk, а POST для 51-го получает HTTP 400. Проверяются все страницы списка
+  и сохранность исходных 50 записей. После удаления одного избранного новое объявление успешно добавляется на 50-е место;
+  остальные записи сохраняются. Удаление объявлений очищает избранное.
+
+Проверены все воспроизводимые ошибочные статусы POST /favorites из Swagger:
+400, 401, 403, 404 и 409. Ответ 500 требует внутреннего сбоя сервиса;
+воспроизвести его штатными запросами по контракту нельзя.
+
+Кейс лимита создаёт и удаляет 51 объявление, поэтому весь пакет занимает
+около полутора минут; тройной прогон — несколько минут.
+
 
 ## Логирование
 
-Для включения логирования request/response в консоль: выставьте переменную окружения `DEBUG=true` в
-`.env.override`
+Команда с `-v` выводит подготовку, шаги, статусы HTTP, результаты и удаление
+данных. Для полного вывода запросов и ответов установите `DEBUG=true`
+в `.env.override`. Такой вывод может содержать пароль и токен; не публикуйте его.
 
-## Запуск линтера
+## Линтер
 
-1. Установить приложение [golangci-lint](https://golangci-lint.run/docs/welcome/install/local/)
-2. Запуск линтера (из корня репозитория):
+Установите golangci-lint **v2** по [официальной инструкции](https://golangci-lint.run/docs/welcome/install/local/).
+Рекомендуемая версия — **v2.15.0**; версия Go, которой собран линтер, должна
+поддерживать используемую версию Go проекта.
+
+В Windows с Git Bash (входит в Git for Windows), а также Linux/macOS:
 
 ```bash
-  golangci-lint run
+curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.15.0
+```
+
+Добавьте каталог `bin` из `go env GOPATH` в `PATH`, перезапустите терминал
+и выполните из корня:
+
+```bash
+golangci-lint version
+golangci-lint run
+```
+
+Конфигурация находится в `.golangci.yml`.
+
+## Сдача
+
+Ревью выполняется в ветке `main` публичного fork, отдельный PR не нужен:
+
+```bash
+git add README.md internal tests
+git commit -m "Add advertisement creation API scenarios"
+git push origin main
 ```

@@ -1,79 +1,49 @@
 package myAdvertisement
 
 import (
+	"encoding/json"
 	"net/http"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
-	"github.com/tidwall/gjson"
 
-	"api-tests-template/internal/managers/auth"
-	"api-tests-template/internal/managers/auth/models"
+	"api-tests-template/internal/assertions"
+	"api-tests-template/internal/managers/advertisements"
+	"api-tests-template/internal/managers/advertisements/models"
 	"api-tests-template/internal/managers/myAdvertisements"
-
-	base "api-tests-template/tests"
+	"api-tests-template/tests/fixtures"
 )
 
-type TestSuite struct {
-	suite.Suite
-	loginData models.LoginOkResponse
+const (
+	profilePageSize = 50
+	invalidToken    = "incorrect_token"
+)
+
+// TestGetMyAdvertisementsPositive checks only the advertisement prepared by this test.
+func TestGetMyAdvertisementsPositive(t *testing.T) {
+	user := fixtures.Login(t)
+	t.Log("[Precondition] Create an advertisement for the configured account")
+	request := fixtures.AdvertisementRequest(t)
+	created := advertisements.CreateAdvertisement(t, user.Token, request)
+
+	t.Log("[Step] Read all pages of the account's own advertisements")
+	items := myAdvertisements.GetAllMyAdvertisements(t, user.Token)
+	found := assertions.FindAdvertisementByID(t, items, created.ID)
+	assertions.AdvertisementMatchesRequest(t, found, request, user.User.Id)
+	for _, item := range items {
+		require.Equal(t, user.User.Id, item.UserID, "Profile returned another user's advertisement %s", item.ID)
+	}
+	t.Log("[Result] The created advertisement is in its owner's profile")
 }
 
-func TestSuiteRun(t *testing.T) {
-	suite.Run(t, &TestSuite{})
-}
-
-func (s *TestSuite) SetupSuite() {
-	base.SetupSuite()
-
-	base.Precondition("Авторизация пользователя с кредами из переменных окружения и получение его параметров")
-	s.loginData = auth.Login(s.T(), os.Getenv("TEST_LOGIN"), os.Getenv("TEST_PASSWORD"))
-}
-
-func (s *TestSuite) TearDownSuite() {
-	base.TearDownSuite()
-}
-
-// Positive: Проверяем получение собственных объявлений в профиле
-func (s *TestSuite) TestGetMyAdvertisementsPositive() {
-	var advertisementsBody string
-	s.Run("Получаем список собственных объявлений", func() {
-		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), s.loginData.Token, http.StatusOK, 50)
-	})
-
-	var items gjson.Result
-	s.Run("Проверяем, что у нас есть несколько добавленных ранее объявлений", func() {
-		items = gjson.Get(advertisementsBody, "items")
-		require.NotEmpty(s.T(), items.Array())
-	})
-
-	s.Run("Проверяем, что наши объявления имеют принадлежность к нашему пользователю и объявления имеют НЕ пустые параметры", func() {
-		for _, item := range items.Array() {
-			require.Equal(s.T(), s.loginData.User.Id, gjson.Get(item.String(), "user_id").String(), "user_id не совпадает")
-
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "id").String(), "id пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "created_at").String(), "created_at пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "updated_at").String(), "updated_at пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "title").String(), "Название пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "description").String(), "Описание пустое")
-			require.True(s.T(), len(gjson.Get(item.String(), "photos").Array()) > 0, "Присутствуют пустые фотографии")
-		}
-	})
-}
-
-// Negative: Проверяем 401 ошибку при попытке получить собственные объявления без токена
-func (s *TestSuite) TestGetMyAdvertisementsIncorrectToken() {
-	var advertisementsBody string
-	s.Run("Получаем список собственных объявлений с неправильным авторизационным токеном", func() {
-		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), "incorrect_token", http.StatusUnauthorized, 50)
-	})
-
-	s.Run("Проверяем, что показывается правильная ошибка", func() {
-		require.Equal(s.T(), "unauthorized", gjson.Get(advertisementsBody, "error").String(),
-			"Некорректное значение error параметра")
-		require.Equal(s.T(), "Invalid or expired token", gjson.Get(advertisementsBody, "message").String(),
-			"Некорректное значение message параметра")
-	})
+// TestGetMyAdvertisementsIncorrectToken checks the exact authorization error.
+func TestGetMyAdvertisementsIncorrectToken(t *testing.T) {
+	fixtures.LoadEnvironment(t)
+	t.Log("[Step] Request the user's advertisements with an invalid token")
+	body := myAdvertisements.GetMyAdvertisements(t, invalidToken, http.StatusUnauthorized, profilePageSize)
+	var response models.ErrorResponse
+	require.NoError(t, json.Unmarshal([]byte(body), &response), "Invalid error JSON: %s", body)
+	require.Equal(t, "unauthorized", response.Error, "Wrong authorization error type")
+	require.Equal(t, "Invalid or expired token", response.Message, "Wrong authorization error message")
+	t.Log("[Result] Invalid token was rejected with HTTP 401 and the expected message")
 }

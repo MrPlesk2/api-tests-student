@@ -19,3 +19,12 @@ func HttpPostAuthLogin(t *testing.T, request authModels.LoginRequest) *http.Resp
 		Status(http.StatusOK).
 		End().Response
 }
+
+// HttpPostAuthRegister registers a test account or returns the existing-account conflict.
+func HttpPostAuthRegister(t *testing.T, request authModels.RegisterRequest) *http.Response {
+	t.Helper()
+	return apiRunner.GetRunner().Create().Post(path.AuthRegisterPath).
+		ContentType("application/json").
+		JSON(request).
+		Expect(t).End().Response
+}
